@@ -1,0 +1,23 @@
+syntax="proto3";
+
+package userproto;
+
+option go_package = "./proto/user";
+
+message User {
+    string id = 1;
+    string firstName = 2;
+    string lastName = 3;
+    string email = 4;
+    string username = 5;
+}
+message CreateUserRequest {
+    User user = 1;
+    string password = 2;
+}
+message CreateUserResponse {
+    User user = 1;
+}
+service UserService {
+    rpc CreateUser(CreateUserRequest) returns (CreateUserResponse);
+}
