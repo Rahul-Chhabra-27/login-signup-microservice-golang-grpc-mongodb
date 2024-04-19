@@ -18,6 +18,14 @@ message CreateUserRequest {
 message CreateUserResponse {
     User user = 1;
 }
+message AuthenticateUserRequest {
+    string email = 1;
+    string password = 2;
+}
+message AuthenticateUserResponse {
+    string message = 1;
+} 
 service UserService {
     rpc CreateUser(CreateUserRequest) returns (CreateUserResponse);
+    rpc AuthenticateUser(AuthenticateUserRequest) returns (AuthenticateUserResponse);
 }

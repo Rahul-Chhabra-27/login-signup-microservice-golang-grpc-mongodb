@@ -10,5 +10,5 @@ all:
 	--go-grpc_out ./proto --go-grpc_opt paths=source_relative \
 	./proto/user/user.proto   
 
-set-enviroment:
+copyandpaste:
 	export PATH=$PATH:$(go env GOPATH)/bin
