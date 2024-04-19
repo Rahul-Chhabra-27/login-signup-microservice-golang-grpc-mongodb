@@ -3,14 +3,18 @@ package main
 import (
 	"context"
 	"fmt"
+	"log"
+	"net"
+	"net/http"
+
+	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
-	"log"
-	"net"
 	"rahulchhabra.io/config"
 	"rahulchhabra.io/model"
 	userproto "rahulchhabra.io/proto/user"
@@ -57,22 +61,54 @@ func startServer() {
 
 	// Register the service with the server
 	userproto.RegisterUserServiceServer(grpcServer, &userService{})
-	// Check for errors
-	if err := grpcServer.Serve(listner); err != nil {
-		log.Fatalf("Failed to serve: %s", err)
+
+	// Start the server in a new goroutine (concurrency) (Serve).
+	// This is so that the server can continue to run while we do other things in the main function and not block the main function.
+	go func () {
+		if err := grpcServer.Serve(listner); err != nil {
+			log.Fatalf("Failed to serve: %s", err)
+		}
+	}()
+	// Create a new gRPC-Gateway server (gateway).
+	connection, err := grpc.DialContext(
+		context.Background(),
+		"localhost:50051",
+		grpc.WithBlock(),
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+	)
+	if err != nil {
+		log.Fatalln("Failed to dial server:", err)
 	}
+	// Create a new gRPC-Gateway mux (gateway).
+	gwmux := runtime.NewServeMux()
+
+	// Register the service with the server (gateway).
+	err = userproto.RegisterUserServiceHandler(context.Background(), gwmux, connection)
+	if err != nil {
+		log.Fatalln("Failed to register gateway:", err)
+	}
+	// Create a new HTTP server (gateway). (Serve). (ListenAndServe)
+	gwServer := &http.Server{
+		Addr:    ":8090",
+		Handler: gwmux,
+	}
+
+	log.Println("Serving gRPC-Gateway on http://0.0.0.0:8090")
+	log.Fatalln(gwServer.ListenAndServe())
 }
 
 // Responsible for creating a user.
 func (*userService) CreateUser(ctx context.Context, request *userproto.CreateUserRequest) (response *userproto.CreateUserResponse, err error) {
 	userdata := request.GetUser()
-
+	
 	// Create a new user struct to be inserted into the database later on  (Filter).
 	userfiler := model.User{
 		Email: userdata.GetEmail(),
 	}
+
 	// Check if the user already exists
 	user := UserCollection.FindOne(context.Background(), userfiler)
+	
 	// Check for errors
 	if user.Err() == nil {
 		return nil, status.Errorf(
@@ -92,9 +128,8 @@ func (*userService) CreateUser(ctx context.Context, request *userproto.CreateUse
 	}
 	// Create a new user
 	newUser := model.User{
-		Id:        primitive.NewObjectID(),
-		FirstName: userdata.GetFirstName(),
-		LastName:  userdata.GetLastName(),
+		FirstName: userdata.GetFirstname(),
+		LastName:  userdata.GetLastname(),
 		Email:     userdata.GetEmail(),
 		Username:  userdata.GetUsername(),
 		Password:  string(hashedPassword),
@@ -120,14 +155,14 @@ func (*userService) CreateUser(ctx context.Context, request *userproto.CreateUse
 	return &userproto.CreateUserResponse{
 		User: &userproto.User{
 			Id:        oid.Hex(),
-			FirstName: newUser.FirstName,
-			LastName:  newUser.LastName,
+			Firstname: newUser.FirstName,
+			Lastname:  newUser.LastName,
 			Email:     newUser.Email,
 			Username:  newUser.Username,
 		},
 	}, nil
 }
-func (*userService)AuthenticateUser(ctx context.Context, request *userproto.AuthenticateUserRequest) (response *userproto.AuthenticateUserResponse, err error) {
+func (*userService) AuthenticateUser(ctx context.Context, request *userproto.AuthenticateUserRequest) (response *userproto.AuthenticateUserResponse, err error) {
 	// get the user details.
 	email := request.Email
 	password := request.Password
@@ -161,7 +196,7 @@ func (*userService)AuthenticateUser(ctx context.Context, request *userproto.Auth
 	// return the response
 	return &userproto.AuthenticateUserResponse{
 		Message: "User Authenticated Successfully",
-	}, nil;		
+	}, nil
 }
 
 func main() {

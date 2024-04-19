@@ -14,10 +14,9 @@ func createuser(client userproto.UserServiceClient) {
 	// Call the CreateUser function on the server and pass the request to it using the client we created above.
 	response, err := client.CreateUser(context.Background(), &userproto.CreateUserRequest{
 		User: &userproto.User{
-			Id: 	  "1",
-			FirstName: "John",
-			LastName:  "Doe",
-			Email:     "johnd@mail.com",
+			Firstname: "alex",
+			Lastname:  "Doe",
+			Email:     "alenxc@mail.com",
 			Username:  "rahulc",
 		},
 		Password: "password",
@@ -59,6 +58,6 @@ func main() {
 	// Create a new client
 	client := userproto.NewUserServiceClient(connection)
 
-	//createuser(client)
-	loginuser(client)
+	createuser(client)
+	//loginuser(client)
 }

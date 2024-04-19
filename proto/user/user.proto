@@ -3,11 +3,12 @@ syntax="proto3";
 package userproto;
 
 option go_package = "./proto/user";
+import "google/api/annotations.proto";
 
 message User {
     string id = 1;
-    string firstName = 2;
-    string lastName = 3;
+    string firstname = 2;
+    string lastname = 3;
     string email = 4;
     string username = 5;
 }
@@ -26,6 +27,16 @@ message AuthenticateUserResponse {
     string message = 1;
 } 
 service UserService {
-    rpc CreateUser(CreateUserRequest) returns (CreateUserResponse);
-    rpc AuthenticateUser(AuthenticateUserRequest) returns (AuthenticateUserResponse);
+    rpc CreateUser(CreateUserRequest) returns (CreateUserResponse){
+        option (google.api.http) = {
+            post: "/user/signup"
+            body: "*"
+        };
+    };
+    rpc AuthenticateUser(AuthenticateUserRequest) returns (AuthenticateUserResponse) {
+        option (google.api.http) = {
+            post: "/user/login"
+            body: "*"
+        };
+    }
 }
