@@ -6,8 +6,11 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"os"
+	"time"
 
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
+	"github.com/joho/godotenv"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
@@ -16,6 +19,7 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
 	"rahulchhabra.io/config"
+	"rahulchhabra.io/jwt"
 	"rahulchhabra.io/model"
 	userproto "rahulchhabra.io/proto/user"
 )
@@ -26,20 +30,29 @@ type userService struct {
 	// mustEmbedUnimplementedUserServiceServer() to make sure that the struct implements the UserServiceServer interface
 	// This is a GoLang thing and is not required in other languages
 	userproto.UnimplementedUserServiceServer
+	jwtManager *jwt.JWTManager
 }
 
 // Create a global variable to store the MongoDB collection
 var UserCollection *mongo.Collection
 
+const (
+	secretKey     = "secretkey"
+	tokenDuration = 5 * time.Minute
+)
+
 // Responsible for starting the server
 func startServer() {
 	// Log a message
 	fmt.Println("Starting server...")
+	// Initialize the gotenv file.. 
+	 godotenv.Load();
+
 	// Create a new context
 	ctx := context.TODO()
 
 	// Connect to the MongoDB database
-	db, err := mongo.Connect(ctx, options.Client().ApplyURI("mongodb+srv://chhabrarahul027:password2707@cluster.l1ycf7p.mongodb.net/"))
+	db, err := mongo.Connect(ctx, options.Client().ApplyURI(os.Getenv("MONGO_URI")))
 
 	// Check for errors
 	if err != nil {
@@ -56,15 +69,21 @@ func startServer() {
 		log.Fatalf("Failed to start server: %s", err)
 	}
 	fmt.Println("Database connected Successfully")
+
+	// Creating a new JWT Manager.
+	jwtManager,_ := jwt.NewJWTManager(os.Getenv("SECRET_KEY"), tokenDuration)
+
 	// Create a new gRPC server
-	grpcServer := grpc.NewServer()
+	grpcServer := grpc.NewServer(
+		grpc.UnaryInterceptor(config.UnaryInterceptor),
+	)
 
 	// Register the service with the server
-	userproto.RegisterUserServiceServer(grpcServer, &userService{})
+	userproto.RegisterUserServiceServer(grpcServer, &userService{jwtManager: jwtManager})
 
 	// Start the server in a new goroutine (concurrency) (Serve).
 	// This is so that the server can continue to run while we do other things in the main function and not block the main function.
-	go func () {
+	go func() {
 		if err := grpcServer.Serve(listner); err != nil {
 			log.Fatalf("Failed to serve: %s", err)
 		}
@@ -100,7 +119,7 @@ func startServer() {
 // Responsible for creating a user.
 func (*userService) CreateUser(ctx context.Context, request *userproto.CreateUserRequest) (response *userproto.CreateUserResponse, err error) {
 	userdata := request.GetUser()
-	
+
 	// Create a new user struct to be inserted into the database later on  (Filter).
 	userfiler := model.User{
 		Email: userdata.GetEmail(),
@@ -108,7 +127,7 @@ func (*userService) CreateUser(ctx context.Context, request *userproto.CreateUse
 
 	// Check if the user already exists
 	user := UserCollection.FindOne(context.Background(), userfiler)
-	
+
 	// Check for errors
 	if user.Err() == nil {
 		return nil, status.Errorf(
@@ -162,7 +181,7 @@ func (*userService) CreateUser(ctx context.Context, request *userproto.CreateUse
 		},
 	}, nil
 }
-func (*userService) AuthenticateUser(ctx context.Context, request *userproto.AuthenticateUserRequest) (response *userproto.AuthenticateUserResponse, err error) {
+func (userServiceManager *userService) AuthenticateUser(ctx context.Context, request *userproto.AuthenticateUserRequest) (response *userproto.AuthenticateUserResponse, err error) {
 	// get the user details.
 	email := request.Email
 	password := request.Password
@@ -193,9 +212,18 @@ func (*userService) AuthenticateUser(ctx context.Context, request *userproto.Aut
 			fmt.Sprintf("Password is incorrect: %s", err),
 		)
 	}
+	// fetching the token.
+	token, err := userServiceManager.jwtManager.GenerateToken(&userModel)
+	if err != nil {
+		return nil, status.Errorf(
+			codes.Internal,
+			fmt.Sprintf("Could not generate token: %s", err),
+		)
+	}
 	// return the response
 	return &userproto.AuthenticateUserResponse{
-		Message: "User Authenticated Successfully",
+		AuthToken: token,
+		Message:   "User Authenticated Successfully",
 	}, nil
 }
 

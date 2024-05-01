@@ -25,6 +25,7 @@ message AuthenticateUserRequest {
 }
 message AuthenticateUserResponse {
     string message = 1;
+    string authToken = 2;
 } 
 service UserService {
     rpc CreateUser(CreateUserRequest) returns (CreateUserResponse){

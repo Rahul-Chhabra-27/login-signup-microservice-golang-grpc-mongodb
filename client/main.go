@@ -32,7 +32,7 @@ func createuser(client userproto.UserServiceClient) {
 func loginuser(client userproto.UserServiceClient) {
 	// Call the AuthenticateUser function on the server and pass the request to it using the client we created above.
 	response, err := client.AuthenticateUser(context.Background(), &userproto.AuthenticateUserRequest{
-		Email: "johnd@mail.com",
+		Email: "rahul.c@prograd.org",
 		Password: "password",
 	})
 	//Check for errors
@@ -40,7 +40,8 @@ func loginuser(client userproto.UserServiceClient) {
 		log.Fatalf("Could not authenticate user: %v", err)
 	}
 	// Print the response
-	fmt.Println("User authenticated: ", response.Message);
+	fmt.Println("User authenticated: \n", response.Message);
+	fmt.Println("Token Generated :- ", response.AuthToken);
 }
 func main() {
 	// Create a connection to the server
@@ -58,6 +59,6 @@ func main() {
 	// Create a new client
 	client := userproto.NewUserServiceClient(connection)
 
-	createuser(client)
-	//loginuser(client)
+	//createuser(client)
+	loginuser(client)
 }
