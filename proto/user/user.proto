@@ -30,13 +30,13 @@ message AuthenticateUserResponse {
 service UserService {
     rpc CreateUser(CreateUserRequest) returns (CreateUserResponse){
         option (google.api.http) = {
-            post: "/user/signup"
+            post: "/m1/signup"
             body: "*"
         };
     };
     rpc AuthenticateUser(AuthenticateUserRequest) returns (AuthenticateUserResponse) {
         option (google.api.http) = {
-            post: "/user/login"
+            post: "/m1/login"
             body: "*"
         };
     }

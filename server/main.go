@@ -25,7 +25,7 @@ import (
 )
 
 // Create a struct that will implement the UserServiceServer interface
-type userService struct {
+type UserService struct {
 	// This is the same as the UserServiceServer interface from the proto file (user.proto) but with an extra method called
 	// mustEmbedUnimplementedUserServiceServer() to make sure that the struct implements the UserServiceServer interface
 	// This is a GoLang thing and is not required in other languages
@@ -33,91 +33,54 @@ type userService struct {
 	jwtManager *jwt.JWTManager
 }
 
-// Create a global variable to store the MongoDB collection
-var UserCollection *mongo.Collection
+func (userServiceManager *UserService) AuthenticateUser(ctx context.Context, request *userproto.AuthenticateUserRequest) (response *userproto.AuthenticateUserResponse, err error) {
+	// get the user details.
+	email := request.Email
+	password := request.Password
 
-const (
-	secretKey     = "secretkey"
-	tokenDuration = 5 * time.Minute
-)
+	// check if the user exists
+	user := UserCollection.FindOne(context.Background(), model.User{Email: email})
+	// check for errors
+	if user.Err() != nil {
+		return nil, status.Errorf(
+			codes.NotFound,
+			fmt.Sprintf("User with username %s not found", email),
+		)
+	}
+	// create a user model
+	var userModel model.User
+	// decode the user from the database to the user struct (Decode).
+	if err := user.Decode(&userModel); err != nil {
+		return nil, status.Errorf(
+			codes.Internal,
+			fmt.Sprintf("Could not decode user data: %s", err),
+		)
+	}
 
-// Responsible for starting the server
-func startServer() {
-	// Log a message
-	fmt.Println("Starting server...")
-	// Initialize the gotenv file.. 
-	 godotenv.Load();
-
-	// Create a new context
-	ctx := context.TODO()
-
-	// Connect to the MongoDB database
-	db, err := mongo.Connect(ctx, options.Client().ApplyURI(os.Getenv("MONGO_URI")))
-
-	// Check for errors
+	// compare user passwords(hashedpassword, inputpassword)..
+	if err := config.ComparePasswords(userModel.Password, password); err != nil {
+		return nil, status.Errorf(
+			codes.Unauthenticated,
+			fmt.Sprintf("Password is incorrect: %s", err),
+		)
+	}
+	// Gennerating the the jwt token.
+	token, err := userServiceManager.jwtManager.GenerateToken(&userModel)
 	if err != nil {
-		log.Fatalf("Failed to connect to MongoDB: %s", err)
+		return nil, status.Errorf(
+			codes.Internal,
+			fmt.Sprintf("Could not generate token: %s", err),
+		)
 	}
-
-	// Set the global variable to the collection
-	UserCollection = db.Database("testdb").Collection("users")
-
-	// Start the server on port 50051
-	listner, err := net.Listen("tcp", "localhost:50051")
-	// Check for errors
-	if err != nil {
-		log.Fatalf("Failed to start server: %s", err)
-	}
-	fmt.Println("Database connected Successfully")
-
-	// Creating a new JWT Manager.
-	jwtManager,_ := jwt.NewJWTManager(os.Getenv("SECRET_KEY"), tokenDuration)
-
-	// Create a new gRPC server
-	grpcServer := grpc.NewServer(
-		grpc.UnaryInterceptor(config.UnaryInterceptor),
-	)
-
-	// Register the service with the server
-	userproto.RegisterUserServiceServer(grpcServer, &userService{jwtManager: jwtManager})
-
-	// Start the server in a new goroutine (concurrency) (Serve).
-	// This is so that the server can continue to run while we do other things in the main function and not block the main function.
-	go func() {
-		if err := grpcServer.Serve(listner); err != nil {
-			log.Fatalf("Failed to serve: %s", err)
-		}
-	}()
-	// Create a new gRPC-Gateway server (gateway).
-	connection, err := grpc.DialContext(
-		context.Background(),
-		"localhost:50051",
-		grpc.WithBlock(),
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-	)
-	if err != nil {
-		log.Fatalln("Failed to dial server:", err)
-	}
-	// Create a new gRPC-Gateway mux (gateway).
-	gwmux := runtime.NewServeMux()
-
-	// Register the service with the server (gateway).
-	err = userproto.RegisterUserServiceHandler(context.Background(), gwmux, connection)
-	if err != nil {
-		log.Fatalln("Failed to register gateway:", err)
-	}
-	// Create a new HTTP server (gateway). (Serve). (ListenAndServe)
-	gwServer := &http.Server{
-		Addr:    ":8090",
-		Handler: gwmux,
-	}
-
-	log.Println("Serving gRPC-Gateway on http://0.0.0.0:8090")
-	log.Fatalln(gwServer.ListenAndServe())
+	// return the response
+	return &userproto.AuthenticateUserResponse{
+		AuthToken: token,
+		Message:   "User Authenticated Successfully",
+	}, nil
 }
 
 // Responsible for creating a user.
-func (*userService) CreateUser(ctx context.Context, request *userproto.CreateUserRequest) (response *userproto.CreateUserResponse, err error) {
+func (*UserService) CreateUser(ctx context.Context, request *userproto.CreateUserRequest) (response *userproto.CreateUserResponse, err error) {
 	userdata := request.GetUser()
 
 	// Create a new user struct to be inserted into the database later on  (Filter).
@@ -181,53 +144,89 @@ func (*userService) CreateUser(ctx context.Context, request *userproto.CreateUse
 		},
 	}, nil
 }
-func (userServiceManager *userService) AuthenticateUser(ctx context.Context, request *userproto.AuthenticateUserRequest) (response *userproto.AuthenticateUserResponse, err error) {
-	// get the user details.
-	email := request.Email
-	password := request.Password
 
-	// check if the user exists
-	user := UserCollection.FindOne(context.Background(), model.User{Email: email})
-	// check for errors
-	if user.Err() != nil {
-		return nil, status.Errorf(
-			codes.NotFound,
-			fmt.Sprintf("User with username %s not found", email),
-		)
-	}
-	// create a user model
-	var userModel model.User
-	// decode the user from the database to the user struct (Decode).
-	if err := user.Decode(&userModel); err != nil {
-		return nil, status.Errorf(
-			codes.Internal,
-			fmt.Sprintf("Could not decode user data: %s", err),
-		)
-	}
+// Create a global variable to store the MongoDB collection
+var UserCollection *mongo.Collection
 
-	// compare user passwords(hashedpassword, inputpassword)..
-	if err := config.ComparePasswords(userModel.Password, password); err != nil {
-		return nil, status.Errorf(
-			codes.Unauthenticated,
-			fmt.Sprintf("Password is incorrect: %s", err),
-		)
-	}
-	// fetching the token.
-	token, err := userServiceManager.jwtManager.GenerateToken(&userModel)
+const (
+	tokenDuration = 5 * time.Hour
+)
+
+// Responsible for starting the server
+func startServer() {
+	// Log a message
+	fmt.Println("Starting server...")
+	// Initialize the gotenv file..
+	godotenv.Load()
+
+	// Create a new context
+	ctx := context.TODO()
+
+	// Connect to the MongoDB database
+	db, err := mongo.Connect(ctx, options.Client().ApplyURI(os.Getenv("MONGO_URI")))
+
+	// Check for errors
 	if err != nil {
-		return nil, status.Errorf(
-			codes.Internal,
-			fmt.Sprintf("Could not generate token: %s", err),
-		)
+		log.Fatalf("Failed to connect to MongoDB: %s", err)
 	}
-	// return the response
-	return &userproto.AuthenticateUserResponse{
-		AuthToken: token,
-		Message:   "User Authenticated Successfully",
-	}, nil
+
+	// Set the global variable to the collection
+	UserCollection = db.Database("testdb").Collection("users")
+
+	// Start the server on port 50051
+	listner, err := net.Listen("tcp", "localhost:50051")
+	// Check for errors
+	if err != nil {
+		log.Fatalf("Failed to start server: %s", err)
+	}
+	fmt.Println("Database connected Successfully")
+
+	// Creating a new JWT Manager.
+	jwtManager, _ := jwt.NewJWTManager(os.Getenv("SECRET_KEY"), tokenDuration)
+
+	// Create a new gRPC server
+	grpcServer := grpc.NewServer(
+		grpc.UnaryInterceptor(config.UnaryInterceptor),
+	)
+
+	// Register the service with the server
+	userproto.RegisterUserServiceServer(grpcServer, &UserService{jwtManager: jwtManager})
+
+	// Start the server in a new goroutine (concurrency) (Serve).
+	// This is so that the server can continue to run while we do other things in the main function and not block the main function.
+	go func() {
+		if err := grpcServer.Serve(listner); err != nil {
+			log.Fatalf("Failed to serve: %s", err)
+		}
+	}()
+	// Create a new gRPC-Gateway server (gateway).
+	connection, err := grpc.DialContext(
+		context.Background(),
+		"localhost:50051",
+		grpc.WithBlock(),
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+	)
+	if err != nil {
+		log.Fatalln("Failed to dial server:", err)
+	}
+	// Create a new gRPC-Gateway mux (gateway).
+	gwmux := runtime.NewServeMux()
+
+	// Register the service with the server (gateway).
+	err = userproto.RegisterUserServiceHandler(context.Background(), gwmux, connection)
+	if err != nil {
+		log.Fatalln("Failed to register gateway:", err)
+	}
+	// Create a new HTTP server (gateway). (Serve). (ListenAndServe)
+	gwServer := &http.Server{
+		Addr:    ":8090",
+		Handler: gwmux,
+	}
+
+	log.Println("Serving gRPC-Gateway on http://0.0.0.0:8090")
+	log.Fatalln(gwServer.ListenAndServe())
 }
 
 func main() {
-	// Start the server
 	startServer()
 }
